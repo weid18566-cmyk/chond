@@ -444,7 +444,42 @@ html, body {
   z-index: 2;
 }
 
-/* ── Responsive ── */
+/* ── Wormhole Schematic Canvas ── */
+#wormhole-schematic canvas {
+  box-shadow: 0 0 15px rgba(0, 240, 255, 0.1);
+}
+
+/* ── Physics HUD Data ── */
+#physics-hud {
+  line-height: 1.7;
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.3);
+}
+
+/* ── Cinematic letterbox bars (Interstellar feel) ── */
+.cinematic-letterbox {
+  position: fixed;
+  left: 0; right: 0;
+  height: 8%;
+  background: #06080d;
+  z-index: 6;
+  pointer-events: none;
+  opacity: 0.85;
+}
+.cinematic-letterbox.top { top: 0; }
+.cinematic-letterbox.bottom { bottom: 0; }
+
+/* ── Scene transition flash ── */
+.scene-flash {
+  position: fixed; inset: 0; z-index: 100;
+  background: white;
+  opacity: 0;
+  pointer-events: none;
+  animation: flash 0.8s ease-out forwards;
+}
+@keyframes flash {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
 @media (min-width: 768px) {
   .splash-container {
     max-width: 430px;

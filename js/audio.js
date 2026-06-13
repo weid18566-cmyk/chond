@@ -51,12 +51,12 @@ export function startWormholeHum() {
   if (!audioCtx || !masterGain) return;
   stopAllAudio();
 
-  // Deep sub-bass drone
+  // Deep sub-bass drone (Interstellar pipe organ feel)
   const sub = audioCtx.createOscillator();
   sub.type = 'sine';
-  sub.frequency.value = 28;
+  sub.frequency.value = 26;
   const subGain = audioCtx.createGain();
-  subGain.gain.value = 1.2;
+  subGain.gain.value = 1.0;
   sub.connect(subGain);
   subGain.connect(masterGain);
   sub.start();
@@ -64,18 +64,29 @@ export function startWormholeHum() {
 
   // Low rumble
   const rumble = audioCtx.createOscillator();
-  rumble.type = 'sawtooth';
-  rumble.frequency.value = 55;
+  rumble.type = 'triangle';
+  rumble.frequency.value = 52;
   const rumbleGain = audioCtx.createGain();
-  rumbleGain.gain.value = 0.15;
+  rumbleGain.gain.value = 0.12;
   const rumbleFilter = audioCtx.createBiquadFilter();
   rumbleFilter.type = 'lowpass';
-  rumbleFilter.frequency.value = 200;
+  rumbleFilter.frequency.value = 150;
   rumble.connect(rumbleFilter);
   rumbleFilter.connect(rumbleGain);
   rumbleGain.connect(masterGain);
   rumble.start();
   oscillators.push({ osc: rumble, gain: rumbleGain, filter: rumbleFilter });
+
+  // Tension layer (builds cinematic tension, Interstellar-style)
+  const tension = audioCtx.createOscillator();
+  tension.type = 'sawtooth';
+  tension.frequency.value = 104;
+  const tensionGain = audioCtx.createGain();
+  tensionGain.gain.value = 0.03;
+  tension.connect(tensionGain);
+  tensionGain.connect(masterGain);
+  tension.start();
+  oscillators.push({ osc: tension, gain: tensionGain, name: 'tension' });
 
   // Mid texture (particle-like shimmer)
   initNoiseSource();
@@ -106,20 +117,24 @@ function initNoiseSource() {
 
 export function updateFlightAudio(speed, progress) {
   if (!audioCtx || !masterGain || isMuted) return;
-  oscillators.forEach(({ osc, gain, filter }) => {
+  oscillators.forEach(({ osc, gain, filter, name }) => {
     if (osc.type === 'sine') {
-      osc.frequency.linearRampToValueAtTime(28 + speed * 120, audioCtx.currentTime + 0.1);
-      gain.gain.linearRampToValueAtTime(1.2 + speed * 2, audioCtx.currentTime + 0.1);
-    } else if (osc.type === 'sawtooth' && filter) {
-      filter.frequency.linearRampToValueAtTime(200 + speed * 800, audioCtx.currentTime + 0.1);
-      gain.gain.linearRampToValueAtTime(0.15 + speed * 0.3, audioCtx.currentTime + 0.1);
+      // Sub drone rises in pitch as speed increases (Interstellar crescendo)
+      osc.frequency.linearRampToValueAtTime(26 + speed * 150, audioCtx.currentTime + 0.1);
+      gain.gain.linearRampToValueAtTime(1.0 + speed * 2.5, audioCtx.currentTime + 0.1);
+    } else if (osc.type === 'triangle' && filter) {
+      filter.frequency.linearRampToValueAtTime(150 + speed * 600, audioCtx.currentTime + 0.1);
+      gain.gain.linearRampToValueAtTime(0.12 + speed * 0.4, audioCtx.currentTime + 0.1);
+    } else if (name === 'tension') {
+      // Tension layer: build as approaching throat (progress 0.3-0.5), then release
+      const throatDist = Math.abs(progress - 0.5);
+      const tensionVol = 0.03 + (1 - throatDist * 3) * 0.12;
+      gain.gain.linearRampToValueAtTime(Math.max(0.02, Math.min(0.15, tensionVol)), audioCtx.currentTime + 0.1);
+      osc.frequency.linearRampToValueAtTime(104 + speed * 200, audioCtx.currentTime + 0.1);
     }
   });
   if (noiseSource) {
-    masterGain.gain.linearRampToValueAtTime(
-      isMuted ? 0 : 0.3 + speed * 0.4,
-      audioCtx.currentTime + 0.1
-    );
+    masterGain.gain.linearRampToValueAtTime(isMuted ? 0 : 0.25 + speed * 0.5, audioCtx.currentTime + 0.1);
   }
 }
 

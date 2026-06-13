@@ -23,6 +23,7 @@ document.addEventListener('touchend', (e) => {
   lastTouchEnd = now;
 }, false);
 
-console.log('🚀 虫洞奇点·星际穿越 | Wormhole Singularity');
+console.log('🌍🚀🌑 虫洞奇点·地月穿越 | Wormhole: Earth → Moon');
+console.log('   穿越距离: 384,400 km');
 console.log('   性能等级:', app.getPerf().tier);
 console.log('   粒子预算:', app.getPerf().particleBudget.toLocaleString());

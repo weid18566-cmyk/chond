@@ -1,9 +1,9 @@
-// Wormhole Flight Scene — First-person tunnel with particles, grid shader, streaking stars
+// Wormhole Flight Scene — Earth(Point A) → Moon(Point B) Interstellar traversal
+// Camera inside the wormhole tunnel, physics-driven, cinematic visuals
 import * as THREE from 'three';
 import { wormholeVertex } from '../shaders/wormhole-vertex.glsl.js';
 import { wormholeFragment } from '../shaders/wormhole-fragment.glsl.js';
-import { particleVertex } from '../shaders/particle-vertex.glsl.js';
-import { particleFragment } from '../shaders/particle-fragment.glsl.js';
+import { createWormholePhysics, WORMHOLE_DB } from '../utils/physics.js';
 
 export function createFlightScene(canvas, perf) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: perf.tier !== 'low', alpha: false });
@@ -11,27 +11,38 @@ export function createFlightScene(canvas, perf) {
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.3;
+  renderer.toneMappingExposure = 1.25;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x06080d);
-  scene.fog = new THREE.FogExp2(0x06080d, 0.00012);
+  scene.background = new THREE.Color(0x03050a);
+  scene.fog = new THREE.FogExp2(0x03050a, 0.00008);
 
-  const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 300);
+  const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 400);
   camera.position.set(0, 0, 0);
+  // Camera looks along -Z into the wormhole
+  // tunnel entrance at ~z=0, throat at ~z=100, exit at ~z=200
 
-  const tunnelLength = 200;
-  const tunnelRadius = 8;
+  // ── Physics Engine ──
+  const physics = createWormholePhysics();
+
+  // ── Wormhole Tunnel ──
+  const tunnelLength = 240;
+  const tunnelRadius = 10;
   const gridDetail = perf.gridDetail;
 
-  // ── Tunnel Cylinder (static, shader handles scrolling) ──
-  const tunnelGeo = new THREE.CylinderGeometry(tunnelRadius, tunnelRadius, tunnelLength, 48, gridDetail, true);
+  const tunnelGeo = new THREE.CylinderGeometry(tunnelRadius, tunnelRadius, tunnelLength, 64, gridDetail, true);
   const tunnelUniforms = {
     uTime: { value: 0 },
     uSpeed: { value: 0 },
     uTunnelLength: { value: tunnelLength },
-    uGridDensity: { value: 0.5 },
+    uGridDensity: { value: 0.55 },
     uGlowIntensity: { value: perf.bloomStrength },
+    uDopplerShift: { value: 0 },
+    uRingIntensity: { value: 0.4 },
+    uLensingStrength: { value: 1.5 },
+    uThroatCenter: { value: WORMHOLE_DB.throatPosition },
+    uThroatWidth: { value: WORMHOLE_DB.throatWidth },
+    uWallDistortion: { value: 0 },
   };
   const tunnelMat = new THREE.ShaderMaterial({
     vertexShader: wormholeVertex,
@@ -43,26 +54,37 @@ export function createFlightScene(canvas, perf) {
   });
   const tunnel = new THREE.Mesh(tunnelGeo, tunnelMat);
   tunnel.rotation.x = Math.PI * 0.5;
-  // Cylinder goes from -100..+100 in local Z after rotation
-  // Place so far end is behind camera: center at -100, spans -200..0
-  tunnel.position.z = -tunnelLength * 0.5;
+  tunnel.position.z = -tunnelLength * 0.5; // spans z=[-120, 120], camera at z=0
   scene.add(tunnel);
 
-  // ── Entrance rings ──
-  const entranceGeo = new THREE.TorusGeometry(tunnelRadius, 0.15, 16, 100);
-  const entranceMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.6 });
-  const entrance = new THREE.Mesh(entranceGeo, entranceMat);
-  entrance.position.z = 0.5;
-  scene.add(entrance);
-
-  const entranceOuter = new THREE.Mesh(
-    new THREE.TorusGeometry(tunnelRadius + 0.3, 0.06, 12, 80),
-    new THREE.MeshBasicMaterial({ color: 0x7b2ff7, transparent: true, opacity: 0.4 })
+  // ── Entrance / Exit rings ──
+  const ringGeo = new THREE.TorusGeometry(tunnelRadius, 0.2, 16, 128);
+  const entranceRing = new THREE.Mesh(ringGeo,
+    new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(0x00aaff) }, uAlpha: { value: 0.7 } },
+      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `varying vec2 vUv; uniform vec3 uColor; uniform float uAlpha;
+        void main(){ float d=abs(vUv.x-0.5)*2.0; float a=smoothstep(0.0,0.15,d)*uAlpha;
+        gl_FragColor=vec4(uColor,a); }`,
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+    })
   );
-  entranceOuter.position.z = 0.3;
-  scene.add(entranceOuter);
+  entranceRing.position.z = 0.5;
+  scene.add(entranceRing);
 
-  // ── Particle System ──
+  const exitRing = new THREE.Mesh(ringGeo.clone(),
+    new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(0xff8800) }, uAlpha: { value: 0.3 } },
+      vertexShader: entranceRing.material.vertexShader,
+      fragmentShader: entranceRing.material.fragmentShader,
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+    })
+  );
+  exitRing.position.z = -tunnelLength * 0.48;
+  exitRing.scale.set(0.15, 0.15, 1);
+  scene.add(exitRing);
+
+  // ── Particle Stream ──
   const pCount = perf.particleBudget;
   const pGeo = new THREE.BufferGeometry();
   const pPositions = new Float32Array(pCount * 3);
@@ -71,91 +93,121 @@ export function createFlightScene(canvas, perf) {
 
   for (let i = 0; i < pCount; i++) {
     const angle = Math.random() * Math.PI * 2;
-    const dist = 0.3 + Math.random() * (tunnelRadius - 0.3);
+    const dist = 0.2 + Math.random() * (tunnelRadius - 0.2);
     const z = -Math.random() * tunnelLength;
     pPositions[i * 3] = Math.cos(angle) * dist;
     pPositions[i * 3 + 1] = Math.sin(angle) * dist;
     pPositions[i * 3 + 2] = z;
+    const ct = -z / tunnelLength;
     const c = new THREE.Color();
-    const colorT = -z / tunnelLength;
-    if (colorT < 0.3) c.setHex(0x00f0ff);
-    else if (colorT < 0.6) c.setHex(0x7b2ff7);
-    else c.setHex(0xff00aa);
-    pColors[i * 3] = c.r;
-    pColors[i * 3 + 1] = c.g;
-    pColors[i * 3 + 2] = c.b;
-    pSizes[i] = Math.random() * 0.18 + 0.02;
+    if (ct < 0.35) c.setRGB(0, 0.7, 1);
+    else if (ct < 0.55) c.setRGB(0.9, 0.85, 1);
+    else c.setRGB(1, 0.5, 0.15);
+    pColors[i * 3] = c.r; pColors[i * 3 + 1] = c.g; pColors[i * 3 + 2] = c.b;
+    pSizes[i] = Math.random() * 0.22 + 0.02;
   }
   pGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
   pGeo.setAttribute('color', new THREE.BufferAttribute(pColors, 3));
   pGeo.setAttribute('aSize', new THREE.BufferAttribute(pSizes, 1));
 
-  const pUniforms = {
-    uTime: { value: 0 },
-    uSpeed: { value: 0 },
-    uTunnelLength: { value: tunnelLength },
-  };
+  const pUniforms = { uTime: { value: 0 }, uSpeed: { value: 0 }, uTunnelLength: { value: tunnelLength } };
   const pMat = new THREE.ShaderMaterial({
-    vertexShader: particleVertex,
-    fragmentShader: particleFragment,
     uniforms: pUniforms,
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
+    vertexShader: /* glsl */ `
+      attribute vec3 color; attribute float aSize;
+      varying vec3 vColor; varying float vAlpha;
+      uniform float uTime, uSpeed, uTunnelLength;
+      void main() {
+        vec3 pos = position;
+        float zNew = mod(pos.z - uTime * uSpeed * 5.0, -uTunnelLength);
+        pos.z = zNew;
+        float df = -pos.z / uTunnelLength;
+        float rm = 1.0 - (1.0 - exp(-abs(df - 0.5) * abs(df - 0.5) / 0.0005)) * 0.88;
+        pos.x *= rm; pos.y *= rm;
+        float tw = df * 2.8 + uTime * uSpeed * 0.5;
+        float ox = pos.x, oy = pos.y;
+        pos.x = ox * cos(tw) - oy * sin(tw);
+        pos.y = ox * sin(tw) + oy * cos(tw);
+        vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+        gl_PointSize = clamp(aSize * (200.0 / -mv.z), 0.25, 7.0);
+        vAlpha = 1.0 - smoothstep(0.9, 1.0, df);
+        vColor = color;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */ `
+      varying vec3 vColor; varying float vAlpha;
+      void main() {
+        float d = length(gl_PointCoord - 0.5) * 2.0;
+        float a = pow(1.0 - smoothstep(0.0, 1.0, d), 1.8) * vAlpha * 0.75;
+        gl_FragColor = vec4(vColor, a);
+      }`,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
   });
   const particleSystem = new THREE.Points(pGeo, pMat);
   scene.add(particleSystem);
 
-  // ── Background stars ──
-  const bgStarCount = 2000;
-  const bgStarGeo = new THREE.BufferGeometry();
-  const bgStarPos = new Float32Array(bgStarCount * 3);
-  for (let i = 0; i < bgStarCount; i++) {
+  // ── Earth Sky Background (at entrance) ──
+  const earthSkyGeo = new THREE.SphereGeometry(80, 32, 32);
+  const earthSkyMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `varying vec3 vPos; void main() { vPos = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `
+      varying vec3 vPos;
+      uniform float uTime;
+      void main() {
+        float h = vPos.y / 80.0;
+        float alpha = smoothstep(0.15, 0.8, h) * 0.5;
+        vec3 sky = mix(vec3(0.05, 0.1, 0.3), vec3(0.02, 0.05, 0.2), smoothstep(0.3, 0.6, h));
+        gl_FragColor = vec4(sky, alpha);
+      }`,
+    side: THREE.BackSide, transparent: true, depthWrite: false,
+  });
+  const earthSky = new THREE.Mesh(earthSkyGeo, earthSkyMat);
+  scene.add(earthSky);
+
+  // ── Moon Sky Background (at exit) ──
+  const moonSkyGeo = new THREE.SphereGeometry(80, 32, 32);
+  const moonSkyMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `varying vec3 vPos; void main() { vPos = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `
+      varying vec3 vPos;
+      void main() {
+        float a = smoothstep(0.1, 0.6, -vPos.y / 80.0) * 0.5;
+        gl_FragColor = vec4(vec3(0.1, 0.08, 0.06), a);
+      }`,
+    side: THREE.BackSide, transparent: true, depthWrite: false,
+  });
+  const moonSky = new THREE.Mesh(moonSkyGeo, moonSkyMat);
+  scene.add(moonSky);
+
+  // ── Starfield (rotating) ──
+  const starCount = 2500;
+  const starGeo = new THREE.BufferGeometry();
+  const starPosArr = new Float32Array(starCount * 3);
+  for (let i = 0; i < starCount; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.acos(2 * Math.random() - 1);
-    const r = 100;
-    bgStarPos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-    bgStarPos[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
-    bgStarPos[i * 3 + 2] = r * Math.cos(phi);
+    const r = 120;
+    starPosArr[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+    starPosArr[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+    starPosArr[i * 3 + 2] = r * Math.cos(phi);
   }
-  bgStarGeo.setAttribute('position', new THREE.BufferAttribute(bgStarPos, 3));
-  const bgStars = new THREE.Points(bgStarGeo, new THREE.PointsMaterial({
-    color: 0xffffff, size: 0.15, transparent: true, opacity: 0.5,
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPosArr, 3));
+  const starField = new THREE.Points(starGeo, new THREE.PointsMaterial({
+    color: 0xffffff, size: 0.12, transparent: true, opacity: 0.6,
     blending: THREE.AdditiveBlending, depthWrite: false,
   }));
-  scene.add(bgStars);
-
-  // ── Nebula clouds ──
-  for (let n = 0; n < 3; n++) {
-    const nebMat = new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0 }, uIndex: { value: n } },
-      vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-      fragmentShader: `
-        varying vec2 vUv; uniform float uTime; uniform float uIndex;
-        float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
-        float noise(vec2 p) { vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
-          return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y); }
-        void main() {
-          float n=noise(vUv*4.0+uTime*0.005+uIndex), n2=noise(vUv*8.0-uTime*0.003+uIndex*2.0);
-          float a=smoothstep(0.45,0.55,n)*0.06+smoothstep(0.48,0.52,n2)*0.04;
-          gl_FragColor=vec4(0.2+uIndex*0.2,0.05,0.5+uIndex*0.2,a);
-        }`,
-      transparent: true, depthWrite: false,
-    });
-    const neb = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), nebMat);
-    neb.position.set((n - 1) * 15, (Math.random() - 0.5) * 10, -40 - n * 20);
-    neb.name = `nebula_${n}`;
-    scene.add(neb);
-  }
+  scene.add(starField);
 
   // ── State ──
-  let baseSpeed = 1.5;
+  let baseSpeed = 1.8;
   let currentSpeed = baseSpeed;
   let targetSpeed = baseSpeed;
   let isBoosting = false;
   let boostTimer = null;
   let traveled = 0;
-  const totalDistance = 120;
+  const totalDistance = 384400; // km
   let isArriving = false;
   let arriveCallback = null;
   let arriveProgress = 0;
@@ -166,82 +218,101 @@ export function createFlightScene(canvas, perf) {
   let pointerDown = false;
   let lastPointerX = 0, lastPointerY = 0;
 
-  // ── Gyroscope ──
+  // ── Gyro ──
   function enableGyro() {
     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-      DeviceOrientationEvent.requestPermission().then(state => {
-        if (state === 'granted') { gyroEnabled = true; window.addEventListener('deviceorientation', onDeviceOrientation); }
+      DeviceOrientationEvent.requestPermission().then(s => {
+        if (s === 'granted') { gyroEnabled = true; window.addEventListener('deviceorientation', od); }
       }).catch(() => {});
     } else if ('ondeviceorientation' in window) {
       gyroEnabled = true;
-      window.addEventListener('deviceorientation', onDeviceOrientation);
+      window.addEventListener('deviceorientation', od);
     }
   }
-  function onDeviceOrientation(e) {
+  function od(e) {
     if (!gyroEnabled) return;
-    gyroBeta = e.beta || 0;
-    gyroGamma = e.gamma || 0;
-    targetPitch = (gyroGamma / 90) * 0.25;
-    targetYaw = (gyroBeta / 180) * 0.3;
+    gyroBeta = e.beta || 0; gyroGamma = e.gamma || 0;
+    targetPitch = (gyroGamma / 90) * 0.3;
+    targetYaw = (gyroBeta / 180) * 0.35;
   }
 
   // ── Update ──
   function update(dt) {
     if (isArriving) {
-      arriveProgress = Math.min(1, arriveProgress + dt * 0.8);
+      arriveProgress = Math.min(1, arriveProgress + dt * 0.6);
       currentSpeed = baseSpeed * (1 - arriveProgress);
       if (arriveProgress >= 1 && arriveCallback) { arriveCallback(); arriveCallback = null; }
     }
 
     currentSpeed += (targetSpeed - currentSpeed) * 3 * dt;
-    traveled += currentSpeed * dt;
+    traveled += currentSpeed * 8000 * dt; // scale to km
     const progress = Math.min(traveled / totalDistance, 1);
 
-    // Camera rotation
+    // ── Physics Evaluation ──
+    const phys = physics.evaluate(progress);
+
+    // Camera rotation (gyro or auto)
     if (gyroEnabled) {
       currentPitch += (targetPitch - currentPitch) * 5 * dt;
       currentYaw += (targetYaw - currentYaw) * 5 * dt;
     } else {
       const t = performance.now() * 0.001;
-      targetPitch = Math.sin(t * 0.4) * 0.12;
-      targetYaw = Math.cos(t * 0.35) * 0.1;
+      const shake = phys.shake;
+      targetPitch = Math.sin(t * 0.35) * 0.12 + Math.sin(t * 7.3) * shake;
+      targetYaw = Math.cos(t * 0.3) * 0.1 + Math.cos(t * 5.7) * shake;
       currentPitch += (targetPitch - currentPitch) * 2 * dt;
       currentYaw += (targetYaw - currentYaw) * 2 * dt;
     }
     camera.rotation.set(currentPitch, currentYaw, 0);
 
-    // Update shader uniforms
+    // ── Update tunnel shader uniforms with physics ──
     const now = performance.now() * 0.001;
     tunnelUniforms.uTime.value = now;
-    tunnelUniforms.uSpeed.value = currentSpeed;
+    tunnelUniforms.uSpeed.value = currentSpeed * phys.speedMul;
+    tunnelUniforms.uDopplerShift.value = phys.doppler;
+    tunnelUniforms.uRingIntensity.value = phys.ringIntensity;
+    tunnelUniforms.uLensingStrength.value = phys.lensing;
+    tunnelUniforms.uWallDistortion.value = phys.wallDistortion;
     pUniforms.uTime.value = now;
-    pUniforms.uSpeed.value = currentSpeed;
-
-    // Entrance fade
-    const entranceAlpha = Math.max(0, 1 - progress * 5);
-    entrance.material.opacity = entranceAlpha * 0.6;
-    entranceOuter.material.opacity = entranceAlpha * 0.4;
+    pUniforms.uSpeed.value = currentSpeed * phys.speedMul;
 
     // Boost glow
-    const targetGlow = isBoosting ? perf.bloomStrength * 1.8 : perf.bloomStrength;
+    const targetGlow = isBoosting ? perf.bloomStrength * 2.0 : perf.bloomStrength;
     tunnelUniforms.uGlowIntensity.value += (targetGlow - tunnelUniforms.uGlowIntensity.value) * 4 * dt;
 
-    // Rotate bg stars
-    bgStars.rotation.z += 0.0003 * currentSpeed;
-    bgStars.rotation.y += 0.0002 * currentSpeed;
+    // ── Background sky transitions ──
+    // Earth sky fades out as we leave Earth; Moon sky fades in as we approach the Moon
+    const earthAlpha = 1 - smoothstep_local(0.05, 0.25, progress);
+    const moonAlpha = smoothstep_local(0.7, 0.95, progress);
+    earthSky.material.uniforms.uAlpha = { value: earthAlpha };
+    moonSky.material.uniforms.uAlpha = { value: moonAlpha };
 
-    // Nebula time
-    scene.children.forEach(c => {
-      if (c.name && c.name.startsWith('nebula_') && c.material.uniforms) {
-        c.material.uniforms.uTime.value = now;
-      }
-    });
+    // Update Earth sky opacity
+    const earthMtl = earthSky.material;
+    if (earthMtl.uniforms) {
+      earthMtl.opacity = earthAlpha * 0.5;
+    }
 
+    // ── Entrance/exit rings ──
+    entranceRing.material.uniforms.uAlpha.value = Math.max(0, 1 - progress * 6);
+    exitRing.material.uniforms.uAlpha.value = smoothstep_local(0.6, 0.9, progress) * 0.7;
+    exitRing.scale.setScalar(0.15 + smoothstep_local(0.7, 0.95, progress) * 0.85);
+
+    // ── Star field rotation ──
+    starField.rotation.z += 0.0002 * currentSpeed;
+    starField.rotation.y += 0.00015 * currentSpeed;
+
+    // ── Render ──
     renderer.render(scene, camera);
-    return progress;
+    return { progress, phys };
   }
 
-  // ── Pointer input ──
+  function smoothstep_local(edge0, edge1, x) {
+    const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+    return t * t * (3 - 2 * t);
+  }
+
+  // ── Input ──
   function onPointerDown(e) {
     pointerDown = true;
     lastPointerX = e.clientX || e.touches?.[0]?.clientX || 0;
@@ -251,53 +322,44 @@ export function createFlightScene(canvas, perf) {
     if (!pointerDown) return;
     const cx = e.clientX || e.touches?.[0]?.clientX || 0;
     const cy = e.clientY || e.touches?.[0]?.clientY || 0;
-    targetYaw += (cx - lastPointerX) * 0.002;
-    targetPitch += (cy - lastPointerY) * 0.002;
-    targetPitch = Math.max(-0.4, Math.min(0.4, targetPitch));
-    targetYaw = Math.max(-0.5, Math.min(0.5, targetYaw));
+    targetYaw += (cx - lastPointerX) * 0.0025;
+    targetPitch += (cy - lastPointerY) * 0.0025;
+    targetPitch = Math.max(-0.5, Math.min(0.5, targetPitch));
+    targetYaw = Math.max(-0.6, Math.min(0.6, targetYaw));
     lastPointerX = cx; lastPointerY = cy;
-    if (gyroEnabled) {
-      targetPitch = targetPitch * 0.5 + (gyroGamma / 90) * 0.25;
-      targetYaw = targetYaw * 0.5 + (gyroBeta / 180) * 0.3;
-    }
   }
-  function onPointerUp() {
-    pointerDown = false;
-  }
+  function onPointerUp() { pointerDown = false; }
 
   function triggerBoost() {
     if (isBoosting) return;
-    isBoosting = true;
-    targetSpeed = baseSpeed * 2.2;
+    isBoosting = true; targetSpeed = baseSpeed * 2.4;
     if (boostTimer) clearTimeout(boostTimer);
-    boostTimer = setTimeout(() => {
-      isBoosting = false;
-      targetSpeed = baseSpeed;
-    }, 2000);
+    boostTimer = setTimeout(() => { isBoosting = false; targetSpeed = baseSpeed; }, 2500);
   }
-
   function endBoost() {
     if (boostTimer) clearTimeout(boostTimer);
-    isBoosting = false;
-    targetSpeed = baseSpeed;
+    isBoosting = false; targetSpeed = baseSpeed;
   }
 
-  // ── Public API ──
   return {
-    scene, camera, renderer,
-    enableGyro,
     resize(w, h) { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); },
     start() { traveled = 0; targetSpeed = baseSpeed; enableGyro(); },
     update,
+    physics,
     getProgress() { return Math.min(traveled / totalDistance, 1); },
     getTraveled() { return traveled; },
     getTotalDistance() { return totalDistance; },
+    getPhys() { return physics.evaluate(Math.min(traveled / totalDistance, 1)); },
     startArrival(cb) { isArriving = true; arriveCallback = cb; arriveProgress = 0; },
     triggerBoost,
     isBoostActive() { return isBoosting; },
     setBaseSpeed(s) { baseSpeed = s; if (!isBoosting) targetSpeed = s; },
     getSpeed() { return currentSpeed; },
     onPointerDown, onPointerMove, onPointerUp,
-    dispose() { renderer.dispose(); window.removeEventListener('deviceorientation', onDeviceOrientation); },
+    dispose() {
+      renderer.dispose();
+      window.removeEventListener('deviceorientation', od);
+      scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) { if (Array.isArray(o.material)) o.material.forEach(m => m.dispose()); else o.material.dispose(); } });
+    },
   };
 }
