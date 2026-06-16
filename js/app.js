@@ -1,4 +1,7 @@
-// App Orchestrator — Scene state machine, physics-driven HUD, 2D wormhole overlay
+// ╔═══════════════════════════════════════════════════════════════════════╗
+// ║  INTERSTELLAR WORMHOLE APP ORCHESTRATOR v2.0                           ║
+// ║  Scene state machine, physics-driven HUD, cinematic overlays          ║
+// ╚═══════════════════════════════════════════════════════════════════════╝
 import { detectPerformance } from './utils/perf.js';
 import { createSplashScene } from './scenes/splash.js';
 import { createFlightScene } from './scenes/flight.js';
@@ -14,6 +17,11 @@ import { shareStellarCoordinates } from './utils/share.js';
 const SCENES = { SPLASH: 'SPLASH', FLYING: 'FLYING', ARRIVAL: 'ARRIVAL' };
 
 function formatNumber(n) { return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : n.toFixed(0); }
+function formatTime(s) {
+  const m = Math.floor(s / 60);
+  const sec = (s % 60).toFixed(1);
+  return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+}
 
 export function createApp() {
   const canvas = document.getElementById('main-canvas');
@@ -40,6 +48,8 @@ export function createApp() {
 
   // ── Centralized input ──
   let boostPressStart = 0, boostCheckActive = false, boostActive = false, boostHintEl = null;
+  let flightStartTime = 0;
+  let activeKeyHandler = null;  // tracked so we can remove it on scene change
 
   canvas.addEventListener('pointerdown', (e) => {
     if (currentSceneInstance?.onPointerDown) currentSceneInstance.onPointerDown(e);
@@ -66,6 +76,7 @@ export function createApp() {
   // ── Transition ──
   function transitionTo(targetScene, data = {}) {
     uiLayer.innerHTML = '';
+    if (activeKeyHandler) { window.removeEventListener('keydown', activeKeyHandler); activeKeyHandler = null; }
     if (currentSceneInstance?.dispose) currentSceneInstance.dispose();
     if (animationId) { cancelAnimationFrame(animationId); animationId = null; }
     stopAllAudio(); boostActive = false; boostCheckActive = false; boostHintEl = null;
@@ -77,7 +88,9 @@ export function createApp() {
     }
   }
 
-  // ═══════════  SPLASH  ═══════════
+  // ════════════════════════════════════════════════════════════
+  //  SPLASH SCENE
+  // ════════════════════════════════════════════════════════════
   function buildSplash() {
     currentSceneInstance = createSplashScene(canvas, perf);
 
@@ -86,8 +99,14 @@ export function createApp() {
 
     const title = document.createElement('h1');
     title.className = 'splash-title';
-    title.innerHTML = '触碰虫洞，开启穿越<span>地球 → 月球 // WORMHOLE</span>';
+    title.innerHTML = '触碰虫洞，开启穿越<span>地球 → 月球 // WORMHOLE TRANSIT</span>';
     container.appendChild(title);
+
+    // ── Science note ──
+    const note = document.createElement('p');
+    note.style.cssText = 'color:#5a6a88;font-size:0.6rem;letter-spacing:0.08em;text-align:center;margin-bottom:24px;font-family:"Space Grotesk",sans-serif;line-height:1.6;max-width:320px;';
+    note.textContent = '基于 Morris-Thorne 度规的虫洞穿越模拟\n包含引力透镜、多普勒偏移、光子球效应';
+    container.appendChild(note);
 
     const actions = document.createElement('div');
     actions.className = 'splash-actions';
@@ -120,27 +139,38 @@ export function createApp() {
     uiLayer.appendChild(container);
   }
 
-  // ═══════════  FLIGHT  ═══════════
+  // ════════════════════════════════════════════════════════════
+  //  FLIGHT SCENE
+  // ════════════════════════════════════════════════════════════
   function buildFlight(data) {
     currentSceneInstance = createFlightScene(canvas, perf);
     currentSceneInstance.start();
+    flightStartTime = performance.now() * 0.001;
 
     try { if (document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {}); } catch (_) {}
 
-    // Vignette
+    // ── Cinematic Letterbox Bars ──
+    const letterTop = document.createElement('div');
+    letterTop.className = 'cinematic-letterbox top';
+    uiLayer.appendChild(letterTop);
+    const letterBottom = document.createElement('div');
+    letterBottom.className = 'cinematic-letterbox bottom';
+    uiLayer.appendChild(letterBottom);
+
+    // ── Vignette ──
     uiLayer.appendChild(Object.assign(document.createElement('div'), { className: 'vignette' }));
 
-    // ── 2D Wormhole Schematic (top-right) ──
+    // ── 2D Wormhole Schematic ──
     const schematic = document.createElement('div');
     schematic.id = 'wormhole-schematic';
-    schematic.style.cssText = 'position:fixed;top:calc(20px + env(safe-area-inset-top,0));right:16px;width:120px;height:80px;z-index:35;';
+    schematic.style.cssText = 'position:fixed;top:calc(24px + env(safe-area-inset-top,0));right:16px;width:130px;height:90px;z-index:35;';
     const schCanvas = document.createElement('canvas');
-    schCanvas.width = 120; schCanvas.height = 80;
-    schCanvas.style.cssText = 'width:120px;height:80px;border-radius:8px;background:rgba(6,8,13,0.5);border:1px solid rgba(0,240,255,0.15);';
+    schCanvas.width = 130; schCanvas.height = 90;
+    schCanvas.style.cssText = 'width:130px;height:90px;border-radius:10px;background:rgba(6,8,13,0.6);border:1px solid rgba(0,240,255,0.12);box-shadow:0 0 20px rgba(0,240,255,0.08);';
     schematic.appendChild(schCanvas);
     const schLabel = document.createElement('div');
-    schLabel.style.cssText = 'color:#8899bb;font-size:0.5rem;text-align:center;letter-spacing:0.05em;margin-top:4px;';
-    schLabel.textContent = '虫洞二维剖面';
+    schLabel.style.cssText = 'color:#667799;font-size:0.48rem;text-align:center;letter-spacing:0.06em;margin-top:3px;font-family:"JetBrains Mono",monospace;';
+    schLabel.textContent = 'MORRIS-THORNE EMBEDDING';
     schematic.appendChild(schLabel);
     uiLayer.appendChild(schematic);
 
@@ -157,18 +187,29 @@ export function createApp() {
     audioOnChange(updateMuteIcon);
     topBar.appendChild(muteBtn);
 
+    // ── Speed indicator ──
+    const speedEl = document.createElement('div');
+    speedEl.style.cssText = 'font-family:"Orbitron",sans-serif;font-size:0.6rem;color:#00f0ff;letter-spacing:0.1em;text-shadow:0 0 10px rgba(0,240,255,0.5);';
+    speedEl.textContent = '1.0x';
+    topBar.appendChild(speedEl);
+
     const skipBtn = document.createElement('button');
-    skipBtn.className = 'btn-text'; skipBtn.textContent = '跳过穿越';
+    skipBtn.className = 'btn-text'; skipBtn.textContent = '跳过';
     skipBtn.setAttribute('aria-label', '跳过虫洞穿越');
     skipBtn.addEventListener('click', () => { triggerHaptic('light'); stopAllAudio(); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); transitionTo(SCENES.ARRIVAL, { skipped: true }); });
     topBar.appendChild(skipBtn);
     uiLayer.appendChild(topBar);
 
-    // ── Physics Data HUD (left side) ──
+    // ── Physics HUD (left) ──
     const physHUD = document.createElement('div');
     physHUD.id = 'physics-hud';
-    physHUD.style.cssText = 'position:fixed;left:16px;top:30%;z-index:35;font-family:"JetBrains Mono",monospace;font-size:0.55rem;color:#8899bb;pointer-events:none;';
+    physHUD.style.cssText = 'position:fixed;left:16px;top:25%;z-index:35;font-family:"JetBrains Mono",monospace;font-size:0.52rem;color:#667799;pointer-events:none;line-height:1.8;text-shadow:0 0 6px rgba(0,240,255,0.2);';
     uiLayer.appendChild(physHUD);
+
+    // ── Right-side telemetry ──
+    const telemetryHUD = document.createElement('div');
+    telemetryHUD.style.cssText = 'position:fixed;right:16px;top:35%;z-index:35;font-family:"JetBrains Mono",monospace;font-size:0.48rem;color:#556688;pointer-events:none;line-height:1.9;text-align:right;';
+    uiLayer.appendChild(telemetryHUD);
 
     // ── Progress bar ──
     const progContainer = document.createElement('div');
@@ -183,15 +224,20 @@ export function createApp() {
 
     // ── Boost hint ──
     boostHintEl = document.createElement('div');
-    boostHintEl.style.cssText = 'position:fixed;bottom:60px;left:50%;transform:translateX(-50%);color:#8899bb;font-size:0.65rem;letter-spacing:0.08em;z-index:30;font-family:"Space Grotesk",sans-serif;';
+    boostHintEl.style.cssText = 'position:fixed;bottom:70px;left:50%;transform:translateX(-50%);color:#667799;font-size:0.6rem;letter-spacing:0.1em;z-index:30;font-family:"Space Grotesk",sans-serif;transition:color 0.3s ease;';
     boostHintEl.textContent = '长按屏幕 · 量子推进';
     uiLayer.appendChild(boostHintEl);
+
+    // ── Center warning flash (for throat passage) ──
+    const centerFlash = document.createElement('div');
+    centerFlash.style.cssText = 'position:fixed;inset:0;z-index:8;pointer-events:none;background:radial-gradient(circle at center,rgba(255,255,255,0) 0%,rgba(255,255,255,0) 100%);transition:background 0.3s ease;';
+    uiLayer.appendChild(centerFlash);
 
     const progFill = document.getElementById('prog-fill');
     const distEl = document.getElementById('prog-distance');
     const locLabel = document.getElementById('prog-loc-label');
-    const physHud = document.getElementById('physics-hud');
     let hasPassedThroat = false;
+    let hasEnteredPhotonSphere = false;
     let lastTime = performance.now();
 
     function flightLoop() {
@@ -210,6 +256,10 @@ export function createApp() {
       const phys = result.phys;
       const speed = currentSceneInstance.getSpeed();
       const traveled = currentSceneInstance.getTraveled();
+      const elapsed = (performance.now() * 0.001) - flightStartTime;
+
+      // ── Update speed indicator (in fractions of c) ──
+      speedEl.textContent = (speed / 1.6).toFixed(1) + 'c';
 
       // Progress bar
       progFill.style.width = (progress * 100) + '%';
@@ -219,38 +269,73 @@ export function createApp() {
         locLabel.textContent = loc.label;
       }
 
-      // Physics HUD data
-      if (physHud) {
-        physHud.innerHTML = `
-          时间膨胀  ${(1 / Math.sqrt(1 - speed * 0.01)).toFixed(3)}τ<br>
-          潮汐力    ${(phys.tidal * 100).toFixed(1)} N/kg<br>
-          蓝移/红移 ${phys.doppler > 0 ? '+' : ''}${(phys.doppler * 100).toFixed(1)}%<br>
-          喉部半径  ${phys.radius.toFixed(2)} r₀
+      // ── Physics HUD ──
+      const gamma = phys.gamma || (1 / Math.sqrt(Math.max(0.01, 1 - speed * 0.01)));
+      const timeDilation = (1 / gamma).toFixed(4);
+      const redshift = (phys.gravitationalRedshift != null) ? (phys.gravitationalRedshift * 100).toFixed(1) : '0.0';
+
+      if (physHUD) {
+        physHUD.innerHTML = `
+          <span style="color:#446688">═══ 相对论参数 ═══</span><br>
+          时间膨胀  <span style="color:#88aacc">${timeDilation}τ</span><br>
+          引力红移  <span style="color:${parseFloat(redshift) > 50 ? '#ff6644' : '#88aacc'}">${redshift}%</span><br>
+          洛伦兹γ   <span style="color:#88aacc">${gamma.toFixed(2)}</span><br><br>
+          <span style="color:#446688">═══ 潮汐应力 ═══</span><br>
+          径向力    <span style="color:${(phys.tidalRadial || phys.tidal) > 1 ? '#ff8844' : '#88aacc'}">${((phys.tidalRadial || phys.tidal) * 100).toFixed(1)}</span> N/kg<br>
+          切向力    <span style="color:#88aacc">${((phys.tidalTangential || phys.tidal * 0.7) * 100).toFixed(1)}</span> N/kg<br>
+          多普勒    <span style="color:${phys.doppler > 0 ? '#ff8844' : '#4488ff'}">${phys.doppler > 0 ? '+' : ''}${(phys.doppler * 100).toFixed(1)}%</span><br><br>
+          <span style="color:#446688">═══ 虫洞几何 ═══</span><br>
+          喉部半径  <span style="color:#88aacc">${phys.radius.toFixed(3)} r₀</span><br>
+          曲率     <span style="color:#88aacc">${(phys.curvature || 0).toFixed(4)}</span><br>
+          坐标距离  <span style="color:#88aacc">${(progress * 100).toFixed(1)}%</span>
         `;
       }
 
-      // 2D Schematic update
-      drawSchematic(schCanvas, progress);
-
-      updateFlightAudio(speed / 2, progress);
-
-      // Throat passage event
-      if (progress >= 0.45 && !hasPassedThroat) {
-        hasPassedThroat = true;
-        playSingularityPass(); triggerHaptic('heavy');
-        if (!boostActive) { boostHintEl.textContent = '穿越喉部 ···'; boostHintEl.style.color = '#ffaa00'; }
+      // ── Telemetry (right side) ──
+      if (telemetryHUD) {
+        telemetryHUD.innerHTML = `
+          穿越用时  ${formatTime(elapsed)}<br>
+          速度      ${(speed * 8000).toLocaleString()} km/s<br>
+          已行进    ${formatNumber(traveled)} km<br>
+          剩余      ${formatNumber(384400 - traveled)} km<br>
+          光子球    <span style="color:${phys.photonSphere > 0.3 ? '#ffaa44' : '#556688'}">${(phys.photonSphere || 0).toFixed(2)}</span><br>
+          透镜强度  ${(phys.lensing).toFixed(2)}<br>
+          框架拖曳  <span style="color:${Math.abs(phys.frameDrag || 0) > 0.1 ? '#aa88ff' : '#556688'}">${(phys.frameDrag || 0).toFixed(3)}</span>
+        `;
       }
 
-      // Exit approach
-      if (progress >= 0.90) {
-        if (!boostActive) { boostHintEl.textContent = '即将抵达月球 ···'; boostHintEl.style.color = '#ff8800'; }
+      // ── 2D Schematic ──
+      drawSchematic(schCanvas, progress);
+
+      // ── Audio ──
+      updateFlightAudio(speed / 2, progress);
+
+      // ── Photon sphere entry event ──
+      if (progress >= 0.40 && !hasEnteredPhotonSphere) {
+        hasEnteredPhotonSphere = true;
+        centerFlash.style.background = 'radial-gradient(circle at center, rgba(100,140,255,0.15) 0%, transparent 70%)';
+        setTimeout(() => { centerFlash.style.background = 'radial-gradient(circle at center, rgba(100,140,255,0) 0%, transparent 100%)'; }, 800);
+      }
+
+      // ── Throat passage event ──
+      if (progress >= 0.48 && !hasPassedThroat) {
+        hasPassedThroat = true;
+        playSingularityPass(); triggerHaptic('heavy');
+        centerFlash.style.background = 'radial-gradient(circle at center, rgba(255,255,255,0.3) 0%, transparent 60%)';
+        setTimeout(() => { centerFlash.style.background = 'radial-gradient(circle at center, rgba(255,255,255,0) 0%, transparent 100%)'; }, 600);
+        if (!boostActive) { boostHintEl.textContent = '穿越喉部 · 奇点'; boostHintEl.style.color = '#ffcc44'; }
+      }
+
+      // ── Exit approach ──
+      if (progress >= 0.85) {
+        if (!boostActive) { boostHintEl.textContent = '即将抵达月球 ···'; boostHintEl.style.color = '#ff8844'; }
       }
 
       if (progress >= 1) {
         currentSceneInstance.startArrival(() => {
           stopAllAudio();
           if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-          transitionTo(SCENES.ARRIVAL);
+          transitionTo(SCENES.ARRIVAL, { elapsed });
         });
       }
 
@@ -258,79 +343,125 @@ export function createApp() {
     }
     animationId = requestAnimationFrame(flightLoop);
 
-    // Keyboard shortcuts
-    window.addEventListener('keydown', function hk(e) {
+    // ── Keyboard shortcuts (tracked for cleanup) ──
+    function handleKey(e) {
       if (currentSceneName !== SCENES.FLYING) return;
       if (e.key === 'ArrowRight') currentSceneInstance.setBaseSpeed(currentSceneInstance.getSpeed() * 1.5);
       if (e.key === 'ArrowLeft') currentSceneInstance.setBaseSpeed(currentSceneInstance.getSpeed() * 0.7);
-    });
+      if (e.key === ' ') { e.preventDefault(); currentSceneInstance.triggerBoost(); playQuantumBoost(); }
+    }
+    activeKeyHandler = handleKey;
+    window.addEventListener('keydown', handleKey);
   }
 
-  // ── 2D Wormhole Schematic Drawing ──
+  // ════════════════════════════════════════════════════════════
+  //  2D WORMHOLE SCHEMATIC
+  // ════════════════════════════════════════════════════════════
   function drawSchematic(canvas, progress) {
     const ctx = canvas.getContext('2d');
     const w = canvas.width, h = canvas.height;
     ctx.clearRect(0, 0, w, h);
 
     // Background
-    ctx.fillStyle = 'rgba(6,8,13,0.85)';
+    ctx.fillStyle = 'rgba(4, 6, 12, 0.9)';
     ctx.fillRect(0, 0, w, h);
 
-    // Points A and B
-    const ax = 8, ay = h / 2;       // Earth side
-    const bx = w - 8, by = h / 2;   // Moon side
-
-    // Draw points
-    ctx.fillStyle = '#4488ff'; ctx.beginPath(); ctx.arc(ax, ay, 4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#cccccc'; ctx.beginPath(); ctx.arc(bx, by, 4, 0, Math.PI * 2); ctx.fill();
-
-    // Labels
-    ctx.fillStyle = '#8899bb'; ctx.font = '7px "Space Grotesk"';
-    ctx.textAlign = 'center'; ctx.fillText('地球', ax, ay - 8);
-    ctx.fillText('月球', bx, by - 8);
-
-    // Wormhole tunnel curve (hourglass shape)
+    const ax = 12, ay = h / 2;
+    const bx = w - 12, by = h / 2;
     const midX = (ax + bx) / 2;
-    const cx1 = ax + (midX - ax) * 0.4;
-    const cx2 = midX + (bx - midX) * 0.6;
-    const throatWidth = 3;
+
+    // ── Embedding diagram (proper hourglass shape) ──
+    // Draw both upper and lower curves
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    for (let x = ax; x <= bx; x += 1) {
+      const t = (x - ax) / (bx - ax);
+      const distFromThroat = Math.abs(t - 0.5);
+      const throatFactor = 1 - Math.exp(-distFromThroat * distFromThroat / 0.01);
+      const r = 25 * (0.15 + 0.85 * throatFactor);
+      ctx.lineTo(x, ay - r);
+    }
+    ctx.strokeStyle = progress < 0.5 ? 'rgba(0,180,255,0.5)' : 'rgba(0,180,255,0.2)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
 
     ctx.beginPath();
     ctx.moveTo(ax, ay);
-    ctx.bezierCurveTo(cx1, ay - 18, cx1, ay - 18, midX, ay - throatWidth);
-    ctx.strokeStyle = 'rgba(0,240,255,0.4)'; ctx.lineWidth = 1.5; ctx.stroke();
+    for (let x = ax; x <= bx; x += 1) {
+      const t = (x - ax) / (bx - ax);
+      const distFromThroat = Math.abs(t - 0.5);
+      const throatFactor = 1 - Math.exp(-distFromThroat * distFromThroat / 0.01);
+      const r = 25 * (0.15 + 0.85 * throatFactor);
+      ctx.lineTo(x, ay + r);
+    }
+    ctx.strokeStyle = progress < 0.5 ? 'rgba(0,180,255,0.5)' : 'rgba(0,180,255,0.2)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Exit side (orange)
+    ctx.beginPath();
+    ctx.moveTo(midX, ay - 4);
+    for (let x = midX; x <= bx; x += 1) {
+      const t = (x - ax) / (bx - ax);
+      const distFromThroat = Math.abs(t - 0.5);
+      const throatFactor = 1 - Math.exp(-distFromThroat * distFromThroat / 0.01);
+      const r = 25 * (0.15 + 0.85 * throatFactor);
+      ctx.lineTo(x, ay - r);
+    }
+    ctx.strokeStyle = progress > 0.5 ? 'rgba(255,136,0,0.5)' : 'rgba(255,136,0,0.15)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
 
     ctx.beginPath();
-    ctx.moveTo(ax, ay);
-    ctx.bezierCurveTo(cx1, ay + 18, cx1, ay + 18, midX, ay + throatWidth);
-    ctx.strokeStyle = 'rgba(0,240,255,0.4)'; ctx.lineWidth = 1.5; ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(midX, ay - throatWidth);
-    ctx.bezierCurveTo(cx2, ay - 18, cx2, ay - 18, bx, by);
-    ctx.strokeStyle = 'rgba(255,136,0,0.4)'; ctx.lineWidth = 1.5; ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(midX, ay + throatWidth);
-    ctx.bezierCurveTo(cx2, ay + 18, cx2, ay + 18, bx, by);
-    ctx.strokeStyle = 'rgba(255,136,0,0.4)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.moveTo(midX, ay + 4);
+    for (let x = midX; x <= bx; x += 1) {
+      const t = (x - ax) / (bx - ax);
+      const distFromThroat = Math.abs(t - 0.5);
+      const throatFactor = 1 - Math.exp(-distFromThroat * distFromThroat / 0.01);
+      const r = 25 * (0.15 + 0.85 * throatFactor);
+      ctx.lineTo(x, ay + r);
+    }
+    ctx.strokeStyle = progress > 0.5 ? 'rgba(255,136,0,0.5)' : 'rgba(255,136,0,0.15)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
 
     // Throat glow
-    const glowGrad = ctx.createRadialGradient(midX, ay, 0, midX, ay, 8);
-    glowGrad.addColorStop(0, 'rgba(200,200,255,0.5)'); glowGrad.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = glowGrad; ctx.fillRect(midX - 10, ay - 10, 20, 20);
+    const glowGrad = ctx.createRadialGradient(midX, ay, 0, midX, ay, 12);
+    glowGrad.addColorStop(0, `rgba(200,200,255,${0.3 + 0.2 * Math.sin(performance.now() * 0.003)})`);
+    glowGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = glowGrad;
+    ctx.fillRect(midX - 15, ay - 15, 30, 30);
 
-    // Current position indicator
+    // Points A and B
+    ctx.fillStyle = '#4488ff';
+    ctx.beginPath(); ctx.arc(ax, ay, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#cccccc';
+    ctx.beginPath(); ctx.arc(bx, by, 4, 0, Math.PI * 2); ctx.fill();
+
+    // Labels
+    ctx.fillStyle = '#556688'; ctx.font = '7px "Space Grotesk"';
+    ctx.textAlign = 'center'; ctx.fillText('A · 地球', ax, ay - 30); ctx.fillText('B · 月球', bx, by - 30);
+
+    // Position indicator with trail
     const indicatorX = ax + (bx - ax) * progress;
-    ctx.fillStyle = '#00f0ff'; ctx.beginPath(); ctx.arc(indicatorX, ay, 3, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 1; ctx.stroke();
+    const indicatorY = ay; // on the center line
+    ctx.fillStyle = '#00f0ff';
+    ctx.beginPath(); ctx.arc(indicatorX, indicatorY, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.arc(indicatorX, indicatorY, 6, 0, Math.PI * 2); ctx.stroke();
+
+    // Label
+    ctx.fillStyle = '#00f0ff'; ctx.font = '6px "JetBrains Mono"';
+    ctx.fillText(`${(progress * 100).toFixed(0)}%`, indicatorX, indicatorY + 12);
   }
 
-  // ═══════════  ARRIVAL (MOON)  ═══════════
+  // ════════════════════════════════════════════════════════════
+  //  ARRIVAL SCENE (Moon)
+  // ════════════════════════════════════════════════════════════
   function buildArrival(data = {}) {
     currentSceneInstance = createArrivalScene(canvas, perf);
-    currentSceneInstance.flash(2.5);
-    setTimeout(() => playArrivalChime(), 500);
+    currentSceneInstance.flash(3.0);
+    setTimeout(() => playArrivalChime(), 600);
 
     uiLayer.appendChild(Object.assign(document.createElement('div'), { className: 'vignette' }));
 
@@ -340,21 +471,23 @@ export function createApp() {
     const card = document.createElement('div');
     card.className = 'info-card wormhole-glass-heavy';
 
+    const elapsed = data.elapsed ? formatTime(data.elapsed) : (data.skipped ? '量子跃迁' : '—');
+
     card.innerHTML = `
       <div class="info-card-header">
         <span class="material-symbols-outlined">dark_mode</span>
         <div>
           <div class="info-card-title">已抵达月球表面</div>
-          <div class="info-card-subtitle">${data.skipped ? '量子跃迁完成 · 地月虫洞' : '虫洞穿越完成 · 事件视界已越过'}</div>
+          <div class="info-card-subtitle">${data.skipped ? '量子跃迁完成 · Morris-Thorne 度规虫洞' : '虫洞穿越完成 · 时空曲率已恢复'}</div>
         </div>
       </div>
       <div class="data-grid">
         <div class="data-item"><div class="label">月球半径</div><div class="value">1,737 km</div></div>
         <div class="data-item"><div class="label">表面温度</div><div class="value">-173°C ~ +127°C</div></div>
         <div class="data-item"><div class="label">地月距离</div><div class="value">384,400 km</div></div>
-        <div class="data-item"><div class="label">虫洞穿越用时</div><div class="value highlight">${data.skipped ? '量子跃迁' : (performance.now() * 0.001).toFixed(1) + 's'}</div></div>
+        <div class="data-item"><div class="label">穿越用时</div><div class="value highlight">${elapsed}</div></div>
       </div>
-      <p class="info-card-desc">虫洞奇点穿越成功。月球表面呈现在眼前——灰色的月海与高地的撞击坑在阳光下分明可见。远处，地球如蓝色弹珠悬浮于黑暗太空。人类终于掌握了时空折叠的技术。</p>
+      <p class="info-card-desc">虫洞奇点穿越成功。通过 Morris-Thorne 度规描述的拓扑结构，飞船在有限曲率的时空隧道中完成了从地球到月球的瞬时穿越。远处，地球如蓝色弹珠悬浮于黑暗太空。</p>
     `;
 
     const cardActions = document.createElement('div');
