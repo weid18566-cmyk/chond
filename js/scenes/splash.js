@@ -1,57 +1,44 @@
-// ╔═══════════════════════════════════════════════════════════════════════╗
-// ║  WORMHOLE ENTRANCE PORTAL — Earth 10km altitude                       ║
-// ║  Spherical portal in deep space, Earth curve below, stars above        ║
-// ╚═══════════════════════════════════════════════════════════════════════╝
+// Splash — Earth 10km altitude wormhole entrance
+// Returns { scene, camera, startTransition, dispose } — NO renderer
 import * as THREE from 'three';
 
-export function createSplashScene(canvas, perf) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: perf.tier !== 'low', alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, perf.maxPixelRatio));
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.1;
-
+export function createSplashScene(perf) {
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 300);
-  camera.position.set(0, 0, 14);
-  camera.lookAt(0, 0, 0);
+  const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 400);
+  camera.position.set(0, 1, 16);
+  camera.lookAt(0, -2, 0);
 
-  // ══════════════ STAR FIELD (deep space) ══════════════
-  const starGeo = new THREE.BufferGeometry();
+  // ══════ STARS ══════
   const starCount = perf.starCount;
+  const starGeo = new THREE.BufferGeometry();
   const starPos = new Float32Array(starCount * 3);
-  const starSizes = new Float32Array(starCount);
+  const starSz = new Float32Array(starCount);
   for (let i = 0; i < starCount; i++) {
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(2 * Math.random() - 1);
-    const r = 70 + Math.random() * 60;
-    starPos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-    starPos[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
-    starPos[i * 3 + 2] = r * Math.cos(phi);
-    starSizes[i] = 0.03 + Math.random() * 0.12;
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.acos(2 * Math.random() - 1);
+    const r = 80 + Math.random() * 60;
+    starPos[i * 3] = r * Math.sin(ph) * Math.cos(th);
+    starPos[i * 3 + 1] = r * Math.sin(ph) * Math.sin(th);
+    starPos[i * 3 + 2] = r * Math.cos(ph);
+    starSz[i] = 0.02 + Math.random() * 0.1;
   }
   starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-  starGeo.setAttribute('aSize', new THREE.BufferAttribute(starSizes, 1));
-
+  starGeo.setAttribute('aSize', new THREE.BufferAttribute(starSz, 1));
   const starMat = new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 } },
     vertexShader: `attribute float aSize; uniform float uTime; varying float vT;
-      void main(){ vec4 mv=modelViewMatrix*vec4(position,1.0);
-      vT=0.5+0.5*sin(uTime*(1.0+aSize*8.0)+position.x*0.04);
-      gl_PointSize=aSize*vT*(70.0/max(-mv.z,0.1)); gl_Position=projectionMatrix*mv; }`,
+      void main(){ vec4 m=modelViewMatrix*vec4(position,1.0);
+      vT=0.5+0.5*sin(uTime*(1.0+aSize*6.0)+position.x*0.05);
+      gl_PointSize=aSize*vT*(60.0/max(-m.z,0.1)); gl_Position=projectionMatrix*m; }`,
     fragmentShader: `varying float vT;
       void main(){ float d=length(gl_PointCoord-0.5)*2.0;
-      float a=pow(1.0-smoothstep(0.0,1.0,d),2.5)*vT*0.7;
-      gl_FragColor=vec4(vec3(0.85,0.88,1.0),a); }`,
+      gl_FragColor=vec4(vec3(0.85,0.88,1.0),pow(1.0-smoothstep(0.0,1.0,d),2.5)*vT*0.65); }`,
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
   });
-  const stars = new THREE.Points(starGeo, starMat);
-  scene.add(stars);
+  scene.add(new THREE.Points(starGeo, starMat));
 
-  // ══════════════ EARTH BODY (visible below, 10000km altitude) ══════════════
-  // Large sphere below the portal showing Earth's curvature
-  const earthGeo = new THREE.SphereGeometry(20, 64, 64);
+  // ══════ EARTH (visible below portal) ══════
+  const earthGeo = new THREE.SphereGeometry(22, 72, 72);
   const earthMat = new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 } },
     vertexShader: `varying vec3 vN; varying vec3 vP;
@@ -59,127 +46,79 @@ export function createSplashScene(canvas, perf) {
       gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
     fragmentShader: `varying vec3 vN; varying vec3 vP; uniform float uTime;
       void main(){
-        vec3 vd=normalize(vec3(0,0,1));
-        float f=1.0-abs(dot(vd,vN));
-        // Earth atmosphere: deep blue at horizon → dark at zenith
-        float h = smoothstep(-20.0, -2.0, vP.y);
-        float atmo = pow(1.0 - abs(dot(vd, vN)), 6.0) * 0.7;
-        vec3 ocean = mix(vec3(0.04,0.08,0.25), vec3(0.1,0.2,0.6), h * atmo);
-        vec3 col = mix(ocean, vec3(0.02,0.03,0.15), h * 0.5);
-        float alpha = smoothstep(-15.0, 0.0, vP.y) * 0.6;
-        gl_FragColor = vec4(col, alpha);
+        vec3 vd=normalize(vec3(0,-1,0.3));
+        float atmo=pow(1.0-abs(dot(vd,vN)),6.0);
+        float h=smoothstep(-22.0,5.0,vP.y);
+        vec3 col=mix(vec3(0.02,0.04,0.18),vec3(0.08,0.15,0.5),h*atmo*0.7);
+        gl_FragColor=vec4(col,smoothstep(-15.0,8.0,vP.y)*0.55);
       }`,
     transparent: true, depthWrite: false,
   });
   const earth = new THREE.Mesh(earthGeo, earthMat);
-  earth.position.set(0, -25, -5);
+  earth.position.set(0, -28, -8);
   scene.add(earth);
 
-  // ══════════════ WORMHOLE PORTAL RINGS ══════════════
-  const ringGroup = new THREE.Group();
+  // ══════ WORMHOLE PORTAL ══════
+  const portal = new THREE.Group();
 
-  // Main event horizon ring
-  const mainRingGeo = new THREE.TorusGeometry(2.5, 0.12, 40, 160);
-  const mainRingMat = new THREE.ShaderMaterial({
+  // Main ring
+  const ringGeo = new THREE.TorusGeometry(2.6, 0.13, 40, 180);
+  const ringMat = new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 } },
-    vertexShader: `varying vec2 vUv;
-      void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-    fragmentShader: `varying vec2 vUv; uniform float uTime;
-      void main(){
-        float pulse=0.6+0.4*sin(vUv.x*6.28318*2.5+uTime*2.0);
-        float edge=1.0-abs(vUv.y-0.5)*2.0;
-        gl_FragColor=vec4(vec3(0.6,0.75,1.0)*pulse,edge*0.5*pulse);
-      }`,
+    vertexShader: `varying vec2 u; void main(){ u=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `varying vec2 u; uniform float uTime;
+      void main(){ float p=0.55+0.45*sin(u.x*6.28318*2.0+uTime*2.0);
+      float e=1.0-abs(u.y-0.5)*2.0; gl_FragColor=vec4(vec3(0.55,0.7,1.0)*p,e*0.5*p); }`,
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
   });
-  const mainRing = new THREE.Mesh(mainRingGeo, mainRingMat);
-  mainRing.rotation.x = Math.PI * 0.5;
-  ringGroup.add(mainRing);
+  portal.add(new THREE.Mesh(ringGeo, ringMat));
 
-  // Secondary ring (outer)
-  const outerRing = new THREE.Mesh(
-    new THREE.TorusGeometry(2.9, 0.05, 20, 120),
-    new THREE.MeshBasicMaterial({ color: 0x334466, transparent: true, opacity: 0.3 })
-  );
-  outerRing.rotation.x = Math.PI * 0.5;
-  ringGroup.add(outerRing);
-
-  ringGroup.position.z = -2;
-  scene.add(ringGroup);
-
-  // ══════════════ PORTAL CENTER (dark opening into wormhole) ══════════════
-  const portalDiscGeo = new THREE.CircleGeometry(2.2, 64);
-  const portalDiscMat = new THREE.ShaderMaterial({
+  // Dark center disc (throat opening)
+  const discGeo = new THREE.CircleGeometry(2.2, 64);
+  const discMat = new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 } },
-    vertexShader: `varying vec2 vUv; varying vec3 vP;
-      void main(){ vUv=uv; vP=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-    fragmentShader: `varying vec2 vUv; varying vec3 vP; uniform float uTime;
-      void main(){
-        float d = length(vUv - 0.5) * 2.0;
-        float alpha = smoothstep(1.0, 0.85, d) * 0.8;
-        // Dark center fading to transparent at edges
-        vec3 col = mix(vec3(0.01,0.015,0.04), vec3(0.02,0.04,0.12), smoothstep(0.0, 1.0, d));
-        gl_FragColor = vec4(col, alpha);
-      }`,
+    vertexShader: `varying vec2 u; void main(){ u=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `varying vec2 u; uniform float uTime;
+      void main(){ float d=length(u-0.5)*2.0;
+      gl_FragColor=vec4(mix(vec3(0.005,0.01,0.03),vec3(0.015,0.03,0.1),d),
+        smoothstep(1.0,0.8,d)*0.75); }`,
     transparent: true, depthWrite: false,
   });
-  const portalDisc = new THREE.Mesh(portalDiscGeo, portalDiscMat);
-  portalDisc.position.z = -2.01;
-  scene.add(portalDisc);
+  portal.add(new THREE.Mesh(discGeo, discMat));
 
-  // ══════════════ TRANSITION STATE ══════════════
-  let isPlaying = false;
-  let transitionProgress = 0;
-  let transitionCallback = null;
-  let rafId = null;
-  let stopped = false;
+  portal.position.set(0, 0, -2);
+  scene.add(portal);
 
-  function animate(time) {
-    if (stopped) return;
-    rafId = requestAnimationFrame(animate);
-    const t = time * 0.001;
+  // ══════ ANIMATION ══════
+  let playing = false, transP = 0, transCB = null, elapsed = 0;
 
-    ringGroup.rotation.z += 0.0015;
-    ringGroup.rotation.y += 0.001;
-    mainRingMat.uniforms.uTime.value = t;
-    portalDiscMat.uniforms.uTime.value = t;
+  function update(dt) {
+    elapsed += dt;
+    const t = elapsed;
+
+    portal.rotation.z += 0.0012 * dt * 60;
+    portal.rotation.y += 0.0008 * dt * 60;
+    ringMat.uniforms.uTime.value = t;
+    discMat.uniforms.uTime.value = t;
     starMat.uniforms.uTime.value = t;
-    earthMat.uniforms.uTime.value = t;
 
-    stars.rotation.y += 0.00006;
-    stars.rotation.x += 0.00003;
-
-    if (isPlaying && transitionProgress < 1) {
-      transitionProgress = Math.min(1, transitionProgress + 0.006);
-      const ease = 1 - Math.pow(1 - transitionProgress, 3.5);
-
-      camera.fov = 52 + ease * 80;
+    if (playing && transP < 1) {
+      transP = Math.min(1, transP + dt * 0.35);
+      const e = 1 - Math.pow(1 - transP, 3.5);
+      camera.fov = 52 + e * 85;
       camera.updateProjectionMatrix();
-      ringGroup.scale.setScalar(1 + ease * 5);
-      ringGroup.position.z = -2 - ease * 7;
-      renderer.toneMappingExposure = 1.1 + ease * 2.0;
-
-      if (transitionProgress >= 1 && transitionCallback) {
-        transitionCallback(); transitionCallback = null;
-      }
+      portal.scale.setScalar(1 + e * 4);
+      portal.position.z = -2 - e * 6;
+      if (transP >= 1 && transCB) { transCB(); transCB = null; }
     }
-
-    renderer.render(scene, camera);
   }
-  rafId = requestAnimationFrame(animate);
 
   return {
-    resize(w, h) { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); },
-    addTrailPoint(x, y) {},
-    startTransition(cb) { isPlaying = true; transitionProgress = 0; transitionCallback = cb; },
+    scene, camera, update,
+    resize(w, h) { camera.aspect = w / h; camera.updateProjectionMatrix(); },
+    startTransition(cb) { playing = true; transP = 0; transCB = cb; },
     dispose() {
-      stopped = true;
-      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-      renderer.dispose();
-      scene.traverse(o => {
-        if (o.geometry) o.geometry.dispose();
-        if (o.material) { if (Array.isArray(o.material)) o.material.forEach(m => m.dispose()); else o.material.dispose(); }
-      });
+      scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) { if (Array.isArray(o.material)) o.material.forEach(m => m.dispose()); else o.material.dispose(); } });
     },
   };
 }
