@@ -102,10 +102,10 @@ export function createApp() {
     title.innerHTML = '触碰虫洞，开启穿越<span>地球 → 月球 // WORMHOLE TRANSIT</span>';
     container.appendChild(title);
 
-    // ── Science note ──
+    // ── Science note (clean) ──
     const note = document.createElement('p');
-    note.style.cssText = 'color:#5a6a88;font-size:0.6rem;letter-spacing:0.08em;text-align:center;margin-bottom:24px;font-family:"Space Grotesk",sans-serif;line-height:1.6;max-width:320px;';
-    note.textContent = '基于 Morris-Thorne 度规的虫洞穿越模拟\n包含引力透镜、多普勒偏移、光子球效应';
+    note.style.cssText = 'color:#4a5a78;font-size:0.55rem;letter-spacing:0.06em;text-align:center;margin-bottom:24px;font-family:"Space Grotesk",sans-serif;line-height:1.5;max-width:320px;';
+    note.textContent = '地球 10,000m 高空 · 地月虫洞入口\nMorris-Thorne 度规 · 物理学模拟';
     container.appendChild(note);
 
     const actions = document.createElement('div');
@@ -200,22 +200,22 @@ export function createApp() {
     topBar.appendChild(skipBtn);
     uiLayer.appendChild(topBar);
 
-    // ── Physics HUD (left) ──
+    // ── Physics HUD (left, simplified) ──
     const physHUD = document.createElement('div');
     physHUD.id = 'physics-hud';
-    physHUD.style.cssText = 'position:fixed;left:16px;top:25%;z-index:35;font-family:"JetBrains Mono",monospace;font-size:0.52rem;color:#667799;pointer-events:none;line-height:1.8;text-shadow:0 0 6px rgba(0,240,255,0.2);';
+    physHUD.style.cssText = 'position:fixed;left:16px;top:28%;z-index:35;font-family:"JetBrains Mono",monospace;font-size:0.5rem;color:#556688;pointer-events:none;line-height:1.9;';
     uiLayer.appendChild(physHUD);
 
-    // ── Right-side telemetry ──
-    const telemetryHUD = document.createElement('div');
-    telemetryHUD.style.cssText = 'position:fixed;right:16px;top:35%;z-index:35;font-family:"JetBrains Mono",monospace;font-size:0.48rem;color:#556688;pointer-events:none;line-height:1.9;text-align:right;';
-    uiLayer.appendChild(telemetryHUD);
+    // ── Right-side distance info ──
+    const distHUD = document.createElement('div');
+    distHUD.style.cssText = 'position:fixed;right:16px;top:32%;z-index:35;font-family:"JetBrains Mono",monospace;font-size:0.48rem;color:#556688;pointer-events:none;line-height:1.9;text-align:right;';
+    uiLayer.appendChild(distHUD);
 
     // ── Progress bar ──
     const progContainer = document.createElement('div');
     progContainer.className = 'progress-container';
     progContainer.innerHTML = `
-      <div class="progress-label"><span id="prog-loc-label">地球近地轨道</span><span id="prog-distance">0 km</span></div>
+      <div class="progress-label"><span id="prog-loc-label">地球 10,000m 高空</span><span id="prog-distance">0 km</span></div>
       <div class="progress-track">
         <div class="progress-fill" id="prog-fill" style="width:0%"></div>
         <div class="progress-marker" id="prog-marker-throat" style="left:50%"></div>
@@ -269,38 +269,25 @@ export function createApp() {
         locLabel.textContent = loc.label;
       }
 
-      // ── Physics HUD ──
+      // ── Physics HUD (simplified) ──
       const gamma = phys.gamma || (1 / Math.sqrt(Math.max(0.01, 1 - speed * 0.01)));
       const timeDilation = (1 / gamma).toFixed(4);
-      const redshift = (phys.gravitationalRedshift != null) ? (phys.gravitationalRedshift * 100).toFixed(1) : '0.0';
-
       if (physHUD) {
         physHUD.innerHTML = `
-          <span style="color:#446688">═══ 相对论参数 ═══</span><br>
-          时间膨胀  <span style="color:#88aacc">${timeDilation}τ</span><br>
-          引力红移  <span style="color:${parseFloat(redshift) > 50 ? '#ff6644' : '#88aacc'}">${redshift}%</span><br>
-          洛伦兹γ   <span style="color:#88aacc">${gamma.toFixed(2)}</span><br><br>
-          <span style="color:#446688">═══ 潮汐应力 ═══</span><br>
-          径向力    <span style="color:${(phys.tidalRadial || phys.tidal) > 1 ? '#ff8844' : '#88aacc'}">${((phys.tidalRadial || phys.tidal) * 100).toFixed(1)}</span> N/kg<br>
-          切向力    <span style="color:#88aacc">${((phys.tidalTangential || phys.tidal * 0.7) * 100).toFixed(1)}</span> N/kg<br>
-          多普勒    <span style="color:${phys.doppler > 0 ? '#ff8844' : '#4488ff'}">${phys.doppler > 0 ? '+' : ''}${(phys.doppler * 100).toFixed(1)}%</span><br><br>
-          <span style="color:#446688">═══ 虫洞几何 ═══</span><br>
-          喉部半径  <span style="color:#88aacc">${phys.radius.toFixed(3)} r₀</span><br>
-          曲率     <span style="color:#88aacc">${(phys.curvature || 0).toFixed(4)}</span><br>
-          坐标距离  <span style="color:#88aacc">${(progress * 100).toFixed(1)}%</span>
+          时间膨胀 ${timeDilation}τ<br>
+          喉部半径 ${phys.radius.toFixed(3)} r₀<br>
+          曲率     ${(phys.curvature || 0).toFixed(4)}<br>
+          潮汐力   ${((phys.tidal || 0) * 100).toFixed(1)} N/kg
         `;
       }
 
-      // ── Telemetry (right side) ──
-      if (telemetryHUD) {
-        telemetryHUD.innerHTML = `
-          穿越用时  ${formatTime(elapsed)}<br>
-          速度      ${(speed * 8000).toLocaleString()} km/s<br>
-          已行进    ${formatNumber(traveled)} km<br>
-          剩余      ${formatNumber(384400 - traveled)} km<br>
-          光子球    <span style="color:${phys.photonSphere > 0.3 ? '#ffaa44' : '#556688'}">${(phys.photonSphere || 0).toFixed(2)}</span><br>
-          透镜强度  ${(phys.lensing).toFixed(2)}<br>
-          框架拖曳  <span style="color:${Math.abs(phys.frameDrag || 0) > 0.1 ? '#aa88ff' : '#556688'}">${(phys.frameDrag || 0).toFixed(3)}</span>
+      // ── Distance info (right) ──
+      if (distHUD) {
+        distHUD.innerHTML = `
+          已行进 ${formatNumber(traveled)} km<br>
+          剩余   ${formatNumber(384400 - traveled)} km<br>
+          用时   ${formatTime(elapsed)}<br>
+          速度   ${(speed * 8000).toLocaleString()} km/s
         `;
       }
 
@@ -478,7 +465,7 @@ export function createApp() {
         <span class="material-symbols-outlined">dark_mode</span>
         <div>
           <div class="info-card-title">已抵达月球表面</div>
-          <div class="info-card-subtitle">${data.skipped ? '量子跃迁完成 · Morris-Thorne 度规虫洞' : '虫洞穿越完成 · 时空曲率已恢复'}</div>
+          <div class="info-card-subtitle">${data.skipped ? '量子跃迁完成' : '虫洞穿越完成 · 抵达月球轨道'}</div>
         </div>
       </div>
       <div class="data-grid">

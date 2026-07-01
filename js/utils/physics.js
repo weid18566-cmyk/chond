@@ -20,8 +20,8 @@ export const WORMHOLE_DB = {
   accretionDensity: 0.8,          // relative density parameter
 
   // ── Travel parameters ──
-  pointA: { name: '地球近地轨道', coord: 0.00, desc: 'Earth LEO', color: [0.2, 0.5, 1.0], skyType: 'earth' },
-  pointB: { name: '月球轨道', coord: 1.00, desc: 'Moon Orbit', color: [0.7, 0.65, 0.7], skyType: 'moon' },
+  pointA: { name: '地球 10,000m 高空', coord: 0.00, desc: 'Earth LEO', color: [0.2, 0.5, 1.0], skyType: 'earth' },
+  pointB: { name: '月球表面', coord: 1.00, desc: 'Moon Surface', color: [0.7, 0.65, 0.7], skyType: 'moon' },
   totalTravelDistance: 384400,
   traversalDuration: 14,
 
@@ -174,15 +174,15 @@ export function createWormholePhysics(config = {}) {
     },
 
     getLocationInfo(l) {
-      if (l < 0.08) return { label: '地球近地轨道 · 虫洞入口', icon: 'public', type: 'earth' };
-      if (l < 0.22) return { label: '事件视界 · 空间扭曲开始', icon: 'circle', type: 'horizon' };
-      if (l < 0.38) return { label: '虫洞隧道 · 接近喉部', icon: 'trip_origin', type: 'tunnel' };
+      if (l < 0.06) return { label: '入口 · 地球 10,000m 高空', icon: 'public', type: 'earth' };
+      if (l < 0.18) return { label: '事件视界 · 进入虫洞', icon: 'circle', type: 'horizon' };
+      if (l < 0.35) return { label: '虫洞隧道 · 接近喉部', icon: 'trip_origin', type: 'tunnel' };
       if (l < 0.48) return { label: '光子球 · 极端弯曲', icon: 'brightness_7', type: 'photon' };
       if (l < 0.55) return { label: '虫洞奇点 · 喉部穿越', icon: 'flare', type: 'singularity' };
       if (l < 0.65) return { label: '光子球 · 反向弯曲', icon: 'brightness_7', type: 'photon' };
       if (l < 0.78) return { label: '虫洞隧道 · 离开喉部', icon: 'trip_origin', type: 'tunnel' };
-      if (l < 0.92) return { label: '事件视界 · 空间还原中', icon: 'circle', type: 'horizon' };
-      return { label: '月球轨道 · 即将抵达', icon: 'dark_mode', type: 'moon' };
+      if (l < 0.93) return { label: '事件视界 · 出洞过渡', icon: 'circle', type: 'horizon' };
+      return { label: '出口 · 月球表面', icon: 'dark_mode', type: 'moon' };
     },
   };
 }
